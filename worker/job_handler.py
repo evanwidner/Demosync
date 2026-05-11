@@ -80,19 +80,37 @@ def stage_inputs(inputs: list[dict[str, Any]], dest: Path) -> Path:
 def register_output(
     conn: psycopg.Connection, job_id: str, kind: str, source: Path, storage_subdir: str
 ) -> str:
-    dest_key = f"{storage_subdir}/{source.name}"
-    dest_abs = UPLOADS_ROOT / dest_key
-    dest_abs.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, dest_abs)
-    public_url = f"/api/files/{dest_key}"
+    import httpx
+
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+    storage_key = f"{storage_subdir}/{source.name}"
+
+    # Upload to Supabase Storage
+    with open(source, "rb") as f:
+        video_bytes = f.read()
+
+    upload_url = f"{supabase_url}/storage/v1/object/outputs/{storage_key}"
+    headers = {
+        "Authorization": f"Bearer {service_role_key}",
+        "Content-Type": "video/mp4",
+        "x-upsert": "true",
+    }
+
+    resp = httpx.put(upload_url, content=video_bytes, headers=headers, timeout=300)
+    resp.raise_for_status()
+
+    public_url = f"{supabase_url}/storage/v1/object/public/outputs/{storage_key}"
+
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO outputs (job_id, kind, storage_key, public_url)
                VALUES (%s, %s, %s, %s)""",
-            (job_id, kind, dest_key, public_url),
+            (job_id, kind, storage_key, public_url),
         )
     conn.commit()
-    return dest_key
+    return storage_key
 
 
 def register_qa(conn: psycopg.Connection, job_id: str, qa_json_path: Path) -> str | None:

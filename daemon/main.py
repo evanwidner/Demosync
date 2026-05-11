@@ -100,6 +100,9 @@ def dispatch_runpod(job_id: str) -> None:
                 "env": [
                     {"key": "DEMOSYNC_JOB_ID", "value": job_id},
                     {"key": "DATABASE_URL", "value": DB_URL},
+                    {"key": "ANTHROPIC_API_KEY", "value": os.environ.get("ANTHROPIC_API_KEY", "")},
+                    {"key": "SUPABASE_URL", "value": os.environ.get("SUPABASE_URL", "")},
+                    {"key": "SUPABASE_SERVICE_ROLE_KEY", "value": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")},
                 ],
             },
         },
