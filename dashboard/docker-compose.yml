@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: demosync-postgres
+    environment:
+      POSTGRES_USER: demosync
+      POSTGRES_PASSWORD: demosync
+      POSTGRES_DB: demosync
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+volumes:
+  postgres-data:

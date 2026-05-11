@@ -1,0 +1,47 @@
+{
+  "tracks": [
+    {
+      "key": "warm_acoustic",
+      "filename": "warm_acoustic.mp3",
+      "label": "Warm acoustic",
+      "mood": "intimate, residential, golden hour",
+      "fits": ["spanish_mediterranean", "craftsman", "farmhouse", "ranch", "colonial"]
+    },
+    {
+      "key": "ambient_electronic",
+      "filename": "ambient_electronic.mp3",
+      "label": "Ambient electronic",
+      "mood": "modern, clean, minimal",
+      "fits": ["modern", "contemporary"]
+    },
+    {
+      "key": "cinematic_strings",
+      "filename": "cinematic_strings.mp3",
+      "label": "Cinematic strings",
+      "mood": "grand, sweeping, luxury",
+      "fits": ["modern", "contemporary", "colonial"]
+    },
+    {
+      "key": "indie_folk",
+      "filename": "indie_folk.mp3",
+      "label": "Indie folk",
+      "mood": "approachable, daylight, family",
+      "fits": ["craftsman", "farmhouse", "ranch"]
+    },
+    {
+      "key": "sparse_piano",
+      "filename": "sparse_piano.mp3",
+      "label": "Sparse piano",
+      "mood": "calm, considered, evening",
+      "fits": ["modern", "spanish_mediterranean", "contemporary"]
+    },
+    {
+      "key": "upbeat_pop",
+      "filename": "upbeat_pop.mp3",
+      "label": "Upbeat pop",
+      "mood": "energetic, sunny, social media",
+      "fits": ["any"]
+    }
+  ],
+  "_note": "MP3 files are not vendored. Drop royalty-free tracks (Uppbeat / Pixabay Music) into this directory matching the 'filename' field. Worker will skip music if a track file is missing."
+}

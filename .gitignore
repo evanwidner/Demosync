@@ -1,0 +1,34 @@
+.env
+.env.local
+*.pyc
+__pycache__/
+.venv/
+venv/
+node_modules/
+.next/
+out/
+dist/
+*.log
+.DS_Store
+
+# Worker artifacts
+worker/runs/
+worker/outputs/
+worker/cache/
+test_data/*/
+!test_data/.gitkeep
+
+# Splat / reconstruction artifacts
+*.ply
+*.splat
+*.ksplat
+colmap/
+sparse/
+dense/
+images_resized/
+
+# Model weights (large)
+checkpoints/
+*.pth
+*.ckpt
+*.safetensors

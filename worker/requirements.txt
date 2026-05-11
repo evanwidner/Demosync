@@ -1,0 +1,14 @@
+nerfstudio==1.1.5
+torch==2.1.2
+torchvision==0.16.2
+numpy<2
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+scipy==1.13.1
+tqdm==4.66.5
+anthropic==0.39.0
+boto3==1.35.36
+python-dotenv==1.0.1
+ffmpeg-python==0.2.0
+typer==0.12.5
+rich==13.8.1
