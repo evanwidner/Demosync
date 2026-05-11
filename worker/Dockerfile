@@ -3,6 +3,7 @@
 # https://hub.docker.com/r/dromni/nerfstudio
 FROM dromni/nerfstudio:1.1.4
 
+# ----- root layer: system packages + permissions -----
 USER root
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
@@ -16,20 +17,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     colmap \
     && rm -rf /var/lib/apt/lists/*
 
+# Safety net: any code in the image (ours or nerfstudio's) that shells out to
+# `python` resolves to python3.
+RUN ln -sf /usr/bin/python3 /usr/bin/python || true
+
+# Create /app as user-owned. The base image puts nerfstudio under
+# /home/user/.local; running the ENTRYPOINT as root would invoke a python
+# that can't see that site-packages, and ns-process-data crashes with
+# "No module named 'nerfstudio'". We run as `user` to inherit the same
+# environment nerfstudio was installed into.
+RUN mkdir -p /app && chown -R user:user /app
+
+# ----- user layer: pip install + code copy -----
+USER user
 WORKDIR /app
 
-# Install into the SAME python3 we'll invoke at ENTRYPOINT. The base image
-# may have multiple pythons on PATH (conda, system, venv); `python3 -m pip`
-# guarantees alignment.
-COPY requirements.txt /app/requirements.txt
-RUN python3 -m pip install --no-cache-dir -r /app/requirements.txt
+# `pip install --user` lands our packages in /home/user/.local alongside
+# nerfstudio's own deps, on the same site-packages the ns-* binaries use.
+COPY --chown=user:user requirements.txt /app/requirements.txt
+RUN python3 -m pip install --user --no-cache-dir -r /app/requirements.txt
 
-COPY . /app/worker
-
-# Safety net: dromni/nerfstudio ships only `python3`, no `python` symlink.
-# Anything in the image (or our code) that shells out to `python` would break
-# without this.
-RUN ln -sf /usr/bin/python3 /usr/bin/python
+COPY --chown=user:user . /app/worker
 
 # RunPod passes DEMOSYNC_JOB_ID via env var; the local daemon passes it as argv[1].
 # job_handler.py accepts either.
