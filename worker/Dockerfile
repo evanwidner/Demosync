@@ -33,4 +33,4 @@ COPY . /app/worker
 
 ENV PYTHONPATH=/app
 
-ENTRYPOINT ["python", "-m", "worker.pipeline"]
+ENTRYPOINT ["python", "-m", "worker.job_handler"]
