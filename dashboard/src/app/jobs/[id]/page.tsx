@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { one, query } from "@/lib/db";
 import type { Job, Output, Property, QaReport } from "@/lib/types";
-import { publicUrl } from "@/lib/storage";
 import { JobAutoRefresh } from "./JobAutoRefresh";
 
 export default async function JobPage({ params }: { params: Promise<{ id: string }> }) {
@@ -45,7 +44,7 @@ export default async function JobPage({ params }: { params: Promise<{ id: string
       {finalVideo && (
         <section className="space-y-2">
           <h2 className="text-lg font-medium">Output</h2>
-          <video controls src={publicUrl(finalVideo.storage_key)} className="w-full rounded-lg border border-border bg-black" />
+          <video controls src={finalVideo.public_url ?? ""} className="w-full rounded-lg border border-border bg-black" />
           <div className="text-xs text-muted">
             {outputs.map((o) => (
               <span key={o.id} className="mr-3">{o.kind}</span>

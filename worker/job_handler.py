@@ -66,14 +66,32 @@ def update_status(conn: psycopg.Connection, job_id: str, status: str, **extra: A
 
 
 def stage_inputs(inputs: list[dict[str, Any]], dest: Path) -> Path:
+    import httpx
     dest.mkdir(parents=True, exist_ok=True)
+
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+    headers = {"Authorization": f"Bearer {service_role_key}"}
+
     for inp in inputs:
-        src = UPLOADS_ROOT / inp["storage_key"]
-        if not src.exists():
-            raise RuntimeError(f"input file missing on disk: {src}")
         target = dest / inp["original_filename"]
-        if not target.exists():
-            shutil.copy2(src, target)
+        if target.exists():
+            continue
+
+        # Download from Supabase Storage
+        download_url = f"{supabase_url}/storage/v1/object/inputs/{inp['storage_key']}"
+        resp = httpx.get(download_url, headers=headers, timeout=60)
+
+        if resp.status_code != 200:
+            # Try public URL as fallback
+            download_url = f"{supabase_url}/storage/v1/object/public/inputs/{inp['storage_key']}"
+            resp = httpx.get(download_url, timeout=60)
+
+        if resp.status_code != 200:
+            raise RuntimeError(f"failed to download {inp['storage_key']}: {resp.status_code}")
+
+        target.write_bytes(resp.content)
+
     return dest
 
 

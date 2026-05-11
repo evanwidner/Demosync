@@ -45,7 +45,7 @@ export default async function PropertyPage({ params }: { params: Promise<{ id: s
           <h2 className="text-lg font-medium">Latest render</h2>
           <video
             controls
-            src={publicUrl(finalVideo.storage_key)}
+            src={finalVideo.public_url ?? ""}
             className="w-full rounded-lg border border-border bg-black"
           />
         </section>

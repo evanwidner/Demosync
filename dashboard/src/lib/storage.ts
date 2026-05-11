@@ -2,30 +2,44 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+
+// Legacy local storage root — used only by the /api/files/ fallback route
 const STORAGE_ROOT = process.env.STORAGE_ROOT ?? path.join(process.cwd(), "uploads");
 
-export async function ensureRoot(): Promise<void> {
-  await fs.mkdir(STORAGE_ROOT, { recursive: true });
-}
-
-export async function saveFile(buffer: Buffer, originalName: string, namespace: string): Promise<{
-  storageKey: string;
-  absolutePath: string;
-  byteSize: number;
-}> {
-  await ensureRoot();
+export async function saveFile(
+  buffer: Buffer,
+  originalName: string,
+  namespace: string,
+): Promise<{ storageKey: string; byteSize: number }> {
   const ext = path.extname(originalName).toLowerCase() || ".bin";
   const key = `${namespace}/${randomUUID()}${ext}`;
-  const abs = path.join(STORAGE_ROOT, key);
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, buffer);
-  return { storageKey: key, absolutePath: abs, byteSize: buffer.byteLength };
+
+  const uploadUrl = `${SUPABASE_URL}/storage/v1/object/inputs/${key}`;
+  const resp = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/octet-stream",
+      "x-upsert": "true",
+    },
+    body: buffer,
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Supabase Storage upload failed: ${resp.status} ${body}`);
+  }
+
+  return { storageKey: key, byteSize: buffer.byteLength };
 }
 
 export function publicUrl(storageKey: string): string {
-  return `/api/files/${encodeURIComponent(storageKey)}`;
+  return `${SUPABASE_URL}/storage/v1/object/public/inputs/${storageKey}`;
 }
 
+// Legacy: serve files written to local disk before Supabase Storage migration
 export async function readFile(storageKey: string): Promise<{ buffer: Buffer; absolutePath: string }> {
   const abs = path.join(STORAGE_ROOT, storageKey);
   const buffer = await fs.readFile(abs);
