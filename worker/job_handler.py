@@ -175,7 +175,11 @@ def register_features(
 
 
 def run(job_id: str) -> int:
-    with psycopg.connect(DB_URL) as conn:
+    # prepare_threshold=None disables psycopg's automatic prepared-statement
+    # caching. Required when DATABASE_URL points at Supabase's transaction
+    # pooler (port 6543) — pgbouncer in transaction mode breaks on prepared
+    # statements. Harmless when running against a direct connection.
+    with psycopg.connect(DB_URL, prepare_threshold=None) as conn:
         try:
             ctx = fetch_job(conn, job_id)
         except Exception as e:

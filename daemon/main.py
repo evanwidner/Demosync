@@ -79,27 +79,53 @@ def _reap(job_id: str, proc: subprocess.Popen[bytes]) -> None:
             conn.commit()
 
 
+RUNPOD_GPU_TYPE = os.environ.get("RUNPOD_GPU_TYPE", "NVIDIA GeForce RTX 4090")
+RUNPOD_CLOUD_TYPE = os.environ.get("RUNPOD_CLOUD_TYPE", "SECURE")  # SECURE | COMMUNITY | ALL
+
+# Supabase's direct connection (db.<ref>.supabase.co) only resolves to IPv6 on
+# the new IPv4-deprecation path. RunPod's network has no IPv6 outbound, so pods
+# can't reach the direct host. The transaction pooler (port 6543) is IPv4-only
+# and works fine for the worker (no LISTEN/NOTIFY needed there). The daemon
+# itself still uses the direct connection because it needs LISTEN/NOTIFY.
+DB_URL_POOLER = os.environ.get("DATABASE_URL_POOLER")
+
+
 def dispatch_runpod(job_id: str) -> None:
     if not RUNPOD_API_KEY or not RUNPOD_TEMPLATE_ID:
         console.log("[red]RUNPOD_API_KEY or RUNPOD_TEMPLATE_ID not set; falling back to local[/red]")
         dispatch_local(job_id)
         return
-    # Minimal RunPod GraphQL pod-spawn. Full impl tracked separately.
-    import urllib.request, json  # noqa: PLC0415
+    import urllib.request, urllib.error, json  # noqa: PLC0415
+
+    worker_db_url = DB_URL_POOLER or DB_URL
+    if not DB_URL_POOLER:
+        console.log(
+            "[yellow]DATABASE_URL_POOLER not set — the pod will use the direct DATABASE_URL, "
+            "which resolves to IPv6 and will fail from RunPod. Set the transaction-pooler URL "
+            "in .env to avoid this.[/yellow]"
+        )
+
     payload: dict[str, Any] = {
-        "query": "mutation podRentInterruptable($input: PodRentInterruptableInput!) { podRentInterruptable(input: $input) { id machineId } }",
+        "query": (
+            "mutation podFindAndDeployOnDemand($input: PodFindAndDeployOnDemandInput!) {"
+            "  podFindAndDeployOnDemand(input: $input) { id machineId desiredStatus imageName }"
+            "}"
+        ),
         "variables": {
             "input": {
                 "templateId": RUNPOD_TEMPLATE_ID,
-                "gpuTypeId": os.environ.get("RUNPOD_GPU_TYPE", "NVIDIA GeForce RTX 4090"),
-                "cloudType": "SECURE",
+                "gpuTypeId": RUNPOD_GPU_TYPE,
+                "cloudType": RUNPOD_CLOUD_TYPE,
+                "gpuCount": 1,
                 "containerDiskInGb": 50,
                 "volumeInGb": 0,
-                "minVcpuCount": 4,
-                "minMemoryInGb": 16,
+                "minVcpuCount": 2,
+                "minMemoryInGb": 8,
+                "name": f"demosync-{job_id[:8]}",
                 "env": [
                     {"key": "DEMOSYNC_JOB_ID", "value": job_id},
-                    {"key": "DATABASE_URL", "value": DB_URL},
+                    # IPv4 pooler URL — RunPod has no IPv6 outbound.
+                    {"key": "DATABASE_URL", "value": worker_db_url},
                     {"key": "ANTHROPIC_API_KEY", "value": os.environ.get("ANTHROPIC_API_KEY", "")},
                     {"key": "SUPABASE_URL", "value": os.environ.get("SUPABASE_URL", "")},
                     {"key": "SUPABASE_SERVICE_ROLE_KEY", "value": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")},
@@ -113,14 +139,27 @@ def dispatch_runpod(job_id: str) -> None:
         headers={
             "Authorization": f"Bearer {RUNPOD_API_KEY}",
             "Content-Type": "application/json",
+            # RunPod is fronted by Cloudflare; urllib's default User-Agent gets
+            # fingerprinted as a bot and returns 403 (Cloudflare error 1010).
+            "User-Agent": "demosync-daemon/0.1",
         },
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        pod_id = body.get("data", {}).get("podRentInterruptable", {}).get("id")
-        console.log(f"runpod pod {pod_id} created for job {job_id[:8]}")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            body = json.loads(e.read().decode("utf-8")) if e.fp else {"errors": [{"message": f"HTTP {e.code}"}]}
+
+        if body.get("errors"):
+            msgs = "; ".join(err.get("message", "?") for err in body["errors"])
+            raise RuntimeError(f"runpod errors: {msgs}")
+        pod = (body.get("data") or {}).get("podFindAndDeployOnDemand")
+        if not pod or not pod.get("id"):
+            raise RuntimeError(f"unexpected response: {body}")
+        pod_id = pod["id"]
+        console.log(f"[green]runpod pod {pod_id} created for job {job_id[:8]} ({RUNPOD_GPU_TYPE}, {RUNPOD_CLOUD_TYPE})[/green]")
         with psycopg.connect(DB_URL) as conn, conn.cursor() as cur:
             cur.execute("UPDATE jobs SET worker_pod_id = %s WHERE id = %s", (pod_id, job_id))
             conn.commit()
