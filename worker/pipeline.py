@@ -390,27 +390,46 @@ def _detect_splatfacto_method(requested: str, appearance_embedding: bool) -> tup
             if token.startswith("splatfacto"):
                 available.add(token.strip(".:"))
 
-    method = requested
-    if requested not in available:
-        if requested == "splatfacto-w" and "splatfacto" in available:
-            console.log(
-                "[yellow]splatfacto-w not registered in this nerfstudio install — "
-                "falling back to vanilla splatfacto. A6 (per-image appearance embeddings) "
-                "may be unavailable; install splatfacto-w to enable.[/yellow]"
-            )
-            method = "splatfacto"
-        elif requested == "splatfacto-2dgs":
-            # A3 — prefer 2DGS for surface-aligned reconstruction; fall through to
-            # splatfacto-big (more gaussians) and then vanilla splatfacto if absent.
-            for candidate in ("splatfacto-big", "splatfacto"):
-                if candidate in available:
-                    console.log(
-                        f"[yellow]splatfacto-2dgs not registered — falling back to "
-                        f"{candidate}. Install gsplat with 2DGS to get surface priors.[/yellow]"
-                    )
-                    method = candidate
-                    break
-        # else: leave method as requested; ns-train will surface the error.
+    # If the probe came back empty (timeout, format mismatch, ns-train misconfigured)
+    # we have no signal. Don't trust the requested method — fall back to vanilla
+    # splatfacto, which is part of every nerfstudio install. Better to give up A6 than
+    # crash ns-train with an unknown-method exit 2 after the user paid for COLMAP.
+    if not available:
+        console.log(
+            "[yellow]ns-train --help probe produced no splatfacto candidates — "
+            "method detection cannot verify availability. Falling back to vanilla "
+            "splatfacto for safety.[/yellow]"
+        )
+        method = "splatfacto"
+    else:
+        method = requested
+        if requested not in available:
+            if requested == "splatfacto-w" and "splatfacto" in available:
+                console.log(
+                    "[yellow]splatfacto-w not registered in this nerfstudio install — "
+                    "falling back to vanilla splatfacto. A6 (per-image appearance embeddings) "
+                    "may be unavailable; install splatfacto-w to enable.[/yellow]"
+                )
+                method = "splatfacto"
+            elif requested == "splatfacto-2dgs":
+                # A3 — prefer 2DGS for surface-aligned reconstruction; fall through to
+                # splatfacto-big (more gaussians) and then vanilla splatfacto if absent.
+                for candidate in ("splatfacto-big", "splatfacto"):
+                    if candidate in available:
+                        console.log(
+                            f"[yellow]splatfacto-2dgs not registered — falling back to "
+                            f"{candidate}. Install gsplat with 2DGS to get surface priors.[/yellow]"
+                        )
+                        method = candidate
+                        break
+            elif "splatfacto" in available:
+                # Some other unrecognized request → safest is vanilla.
+                console.log(
+                    f"[yellow]requested method {requested!r} not in available "
+                    f"{sorted(available)}; falling back to vanilla splatfacto.[/yellow]"
+                )
+                method = "splatfacto"
+            # else: leave method as requested; ns-train will surface the error.
 
     extra: list[str] = []
     if appearance_embedding:
