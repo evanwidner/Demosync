@@ -26,6 +26,11 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app/worker
 
+# Safety net: dromni/nerfstudio ships only `python3`, no `python` symlink.
+# Anything in the image (or our code) that shells out to `python` would break
+# without this.
+RUN ln -sf /usr/bin/python3 /usr/bin/python
+
 # RunPod passes DEMOSYNC_JOB_ID via env var; the local daemon passes it as argv[1].
 # job_handler.py accepts either.
-ENTRYPOINT ["python", "-m", "worker.job_handler"]
+ENTRYPOINT ["python3", "-m", "worker.job_handler"]
