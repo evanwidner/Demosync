@@ -79,12 +79,12 @@ def stage_inputs(inputs: list[dict[str, Any]], dest: Path) -> Path:
             continue
 
         # Download from Supabase Storage
-        download_url = f"{supabase_url}/storage/v1/object/inputs/{inp['storage_key']}"
+        download_url = f"{supabase_url}/storage/v1/object/Inputs/{inp['storage_key']}"
         resp = httpx.get(download_url, headers=headers, timeout=60)
 
         if resp.status_code != 200:
             # Try public URL as fallback
-            download_url = f"{supabase_url}/storage/v1/object/public/inputs/{inp['storage_key']}"
+            download_url = f"{supabase_url}/storage/v1/object/public/Inputs/{inp['storage_key']}"
             resp = httpx.get(download_url, timeout=60)
 
         if resp.status_code != 200:
