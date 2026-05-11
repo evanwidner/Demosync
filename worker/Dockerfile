@@ -26,7 +26,7 @@ RUN pip install --extra-index-url https://download.pytorch.org/whl/cu121 \
 
 # tinycudann (required by nerfstudio for hashgrid features). Pinned to v2.0
 # (commit 3c7931c, 2025-07-08) so CI builds are reproducible — bump deliberately.
-RUN pip install ninja \
+RUN pip install ninja setuptools \
     git+https://github.com/NVlabs/tiny-cuda-nn.git@3c7931caab7b691c6f30dffe20952ed727d935b9#subdirectory=bindings/torch
 
 COPY . /app/worker
