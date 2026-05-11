@@ -258,7 +258,12 @@ def run(job_id: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("usage: python -m worker.job_handler <job_id>", file=sys.stderr)
+    job_id = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("DEMOSYNC_JOB_ID")
+    if not job_id:
+        print(
+            "usage: python -m worker.job_handler <job_id>  "
+            "(or set DEMOSYNC_JOB_ID env var)",
+            file=sys.stderr,
+        )
         sys.exit(1)
-    sys.exit(run(sys.argv[1]))
+    sys.exit(run(job_id))

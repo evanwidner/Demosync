@@ -1,14 +1,9 @@
-nerfstudio==1.1.5
-torch==2.1.2
-torchvision==0.16.2
-numpy<2
-opencv-python-headless==4.10.0.84
-Pillow==10.4.0
-scipy==1.13.1
-tqdm==4.66.5
+# Only the packages NOT already in dromni/nerfstudio:1.1.4.
+# The base image provides torch, torchvision, numpy, scipy, opencv, Pillow, tqdm,
+# rich, typer, tinycudann, gsplat, and nerfstudio itself — don't re-pin them here
+# or you risk fighting the base image's locked versions.
+
 anthropic==0.39.0
-boto3==1.35.36
+psycopg[binary]==3.2.3
 python-dotenv==1.0.1
-ffmpeg-python==0.2.0
-typer==0.12.5
-rich==13.8.1
+httpx==0.27.2
