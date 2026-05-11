@@ -10,8 +10,8 @@ export async function saveFile(
   originalName: string,
   namespace: string,
 ): Promise<{ storageKey: string; byteSize: number }> {
-  const supabaseUrl = process.env.SUPABASE_URL ?? "";
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const supabaseUrl = (process.env.SUPABASE_URL ?? "").trim();
+  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
 
   const ext = path.extname(originalName).toLowerCase() || ".bin";
   const key = `${namespace}/${randomUUID()}${ext}`;
@@ -21,6 +21,7 @@ export async function saveFile(
     method: "PUT",
     headers: {
       Authorization: `Bearer ${serviceRoleKey}`,
+      apikey: serviceRoleKey,
       "Content-Type": "application/octet-stream",
       "x-upsert": "true",
     },
@@ -29,6 +30,7 @@ export async function saveFile(
 
   if (!resp.ok) {
     const body = await resp.text();
+    console.error(`Storage upload failed: ${resp.status}`, body);
     throw new Error(`Supabase Storage upload failed: ${resp.status} ${body}`);
   }
 
