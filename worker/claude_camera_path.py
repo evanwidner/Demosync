@@ -112,7 +112,7 @@ def _ask_claude_for_plan(
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=4096,
+        max_tokens=8000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": [{"type": "text", "text": user_text}]}],
     )

@@ -142,7 +142,7 @@ def qa_video(video: Path, output_json: Path, frames_dir: Path | None = None, n_f
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=4096,
+        max_tokens=8000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     )

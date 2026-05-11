@@ -103,13 +103,28 @@ def organize_photos(photo_dir: Path, output_json: Path, listing_description: str
 
     resp = client.messages.create(
         model=CLAUDE_MODEL,
-        max_tokens=8192,
+        # 8192 truncates around ~50 photos and produces unterminated JSON. Sonnet
+        # 4.6 supports much higher; 32K gives ~250 photos of headroom and the
+        # listing-level summary on top.
+        max_tokens=32000,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": content}],
     )
     text = "".join(block.text for block in resp.content if block.type == "text").strip()
     text = _strip_markdown_fences(text)
-    parsed = json.loads(text)
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        # Surface the failure with enough context to debug without re-running. Include
+        # the stop_reason (max_tokens vs end_turn) so we know if Claude was cut off.
+        stop_reason = getattr(resp, "stop_reason", "unknown")
+        tail = text[-400:] if len(text) > 400 else text
+        raise RuntimeError(
+            f"Claude returned invalid JSON (stop_reason={stop_reason}, "
+            f"output_len={len(text)} chars, n_photos={len(photos)}). "
+            f"Last 400 chars:\n{tail}\n\nParse error: {e}"
+        ) from e
 
     result = OrganizeResult(
         per_photo=parsed.get("per_photo", []),
