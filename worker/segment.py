@@ -27,6 +27,39 @@ from PIL import Image
 LABELS = ["floor", "wall", "ceiling", "window", "mirror", "tv_screen", "glass_door", "furniture"]
 PROMPT = ". ".join(LABELS)
 
+# Class indices that should be EXCLUDED from the splatfacto photometric loss.
+# 1-indexed to match the composite mask format below (0 = unlabeled background).
+EXCLUDE_FROM_TRAINING_LOSS = {
+    LABELS.index("window") + 1,
+    LABELS.index("mirror") + 1,
+    LABELS.index("tv_screen") + 1,
+    LABELS.index("glass_door") + 1,
+}
+
+
+def composite_to_train_masks(composite_dir: Path, train_mask_dir: Path) -> list[Path]:
+    """Convert per-photo composite class-index masks to nerfstudio's binary mask format.
+
+    Composite mask: uint8 single-channel, pixel = class index 0..len(LABELS).
+    Train mask:     uint8 single-channel, pixel = 255 (train) or 0 (ignore).
+
+    Excluded classes (mirror/window/tv/glass_door) → 0; everything else → 255.
+    """
+    train_mask_dir.mkdir(parents=True, exist_ok=True)
+    out: list[Path] = []
+    for composite_path in sorted(composite_dir.glob("*.png")):
+        train_path = train_mask_dir / composite_path.name
+        if train_path.exists():
+            out.append(train_path)
+            continue
+        composite = np.array(Image.open(composite_path), dtype=np.uint8)
+        train_mask = np.full_like(composite, 255, dtype=np.uint8)
+        for excluded_idx in EXCLUDE_FROM_TRAINING_LOSS:
+            train_mask[composite == excluded_idx] = 0
+        Image.fromarray(train_mask, mode="L").save(train_path)
+        out.append(train_path)
+    return out
+
 
 def run_segment(photo_dir: Path, output_dir: Path) -> list[Path]:
     """Run Grounded-SAM 2 over photo_dir, write per-photo composite masks to output_dir.

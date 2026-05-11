@@ -54,10 +54,22 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS jobs_property_idx ON jobs(property_id);
 CREATE INDEX IF NOT EXISTS jobs_status_idx   ON jobs(status);
 
+-- Tier 0/1 quality knobs. NULL = use worker defaults; populate per-job to override.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS colmap_matching_method     text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS splat_method                text;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS supersample                 boolean;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS densify_grad_threshold      real;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS densification_interval      integer;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS use_semantic_masking        boolean NOT NULL DEFAULT false;
+-- Mesh fallback — re-render camera path against extracted mesh when QA flags major/fail.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS use_mesh_fallback            boolean NOT NULL DEFAULT false;
+-- G2 — populated by worker when COLMAP <60% gate fires; surfaced in dashboard.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS reshoot_recommendations     jsonb;
+
 CREATE TABLE IF NOT EXISTS outputs (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   job_id       uuid NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
-  kind         text NOT NULL,        -- mp4_16x9 | mp4_9x16 | mp4_1x1 | splat_ply
+  kind         text NOT NULL,        -- mp4_16x9 | mp4_9x16 | mp4_1x1 | splat_ply | mp4_mesh_fallback
   storage_key  text NOT NULL,
   public_url   text,
   created_at   timestamptz NOT NULL DEFAULT now()

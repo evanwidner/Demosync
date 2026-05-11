@@ -23,7 +23,14 @@ from typing import Any
 import anthropic
 import numpy as np
 
-from worker.camera_path import _catmull_rom, _ease_in_out, _interp_curve, _look_at_matrix
+from worker.camera_path import (
+    _catmull_rom,
+    _ease_in_out,
+    _envelope_radius,
+    _interp_curve,
+    _look_at_matrix,
+    clamp_to_envelope,
+)
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
@@ -154,8 +161,9 @@ def _write_render_path(
         raise ValueError("Claude returned fewer than 2 valid waypoints; cannot render path")
 
     waypoint_positions_arr = np.array(waypoint_positions)
-    # Constraint: waypoints must lie within the convex hull of all COLMAP positions.
-    # We already guaranteed that by picking indices into the COLMAP list — no fakes.
+    # Waypoints themselves are COLMAP indices so they sit at registered positions, but
+    # the Catmull-Rom interpolation between distant waypoints can still leave the
+    # registered volume — the envelope clamp below catches that.
 
     total_frames = int(plan.duration_seconds * fps)
     samples_per_segment = max(1, total_frames // max(1, len(waypoint_positions_arr) - 1))
@@ -167,6 +175,13 @@ def _write_render_path(
     eased_ts = np.array([_ease_in_out(i / max(1, total_frames - 1)) for i in range(total_frames)])
     target_arc = eased_ts * total_len
     sampled = np.array([_interp_curve(curve, cum, s) for s in target_arc])
+
+    # A2 — envelope clamp using ALL COLMAP positions (not just the chosen waypoints).
+    sampled = clamp_to_envelope(
+        sampled,
+        training_positions=positions,
+        max_dist=_envelope_radius(positions),
+    )
 
     lookahead = max(1, total_frames // 10)
     up = np.array([0.0, 0.0, 1.0])

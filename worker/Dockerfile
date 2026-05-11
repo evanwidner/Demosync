@@ -42,6 +42,23 @@ WORKDIR /app
 COPY --chown=1000:1000 requirements.txt /app/requirements.txt
 RUN python3 -m pip install --user --no-cache-dir -r /app/requirements.txt
 
+# L3/A10 — semantic masking deps. Optional: gated by ENABLE_SEMANTIC_MASKING build arg
+# so the default image stays lean. Enable with: `docker build --build-arg ENABLE_SEMANTIC_MASKING=1 ...`
+# Worker auto-disables stage_segment if the imports fail, so this is safe to omit.
+ARG ENABLE_SEMANTIC_MASKING=0
+RUN if [ "$ENABLE_SEMANTIC_MASKING" = "1" ]; then \
+      python3 -m pip install --user --no-cache-dir \
+        "sam2 @ git+https://github.com/facebookresearch/sam2.git" \
+        "groundingdino-py==0.4.0" ; \
+      mkdir -p /app/weights && cd /app/weights && \
+      curl -fsSL -o sam2_hiera_large.pt \
+        https://dl.fbaipublicfiles.com/segment_anything_2/072824/sam2_hiera_large.pt && \
+      curl -fsSL -o groundingdino_swint_ogc.pth \
+        https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth && \
+      curl -fsSL -o GroundingDINO_SwinT_OGC.cfg.py \
+        https://raw.githubusercontent.com/IDEA-Research/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py ; \
+    fi
+
 COPY --chown=1000:1000 . /app/worker
 
 # RunPod passes DEMOSYNC_JOB_ID via env var; the local daemon passes it as argv[1].

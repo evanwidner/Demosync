@@ -64,25 +64,95 @@ def _greedy_tsp_order(positions: np.ndarray) -> list[int]:
     return order
 
 
-def _catmull_rom(points: np.ndarray, samples_per_segment: int) -> np.ndarray:
+def _catmull_rom(points: np.ndarray, samples_per_segment: int, alpha: float = 0.5) -> np.ndarray:
+    """Parametric Catmull-Rom spline.
+
+    alpha=0   → uniform (cusps + overshoot on uneven spacing)
+    alpha=0.5 → centripetal (no cusps, no self-intersections — what we want indoors)
+    alpha=1   → chordal
+    """
     if len(points) < 2:
         return points.copy()
     p = np.vstack([points[0], points, points[-1]])
+
+    def _knot(ti: float, pa: np.ndarray, pb: np.ndarray) -> float:
+        d = float(np.linalg.norm(pb - pa))
+        return ti + max(d, 1e-9) ** alpha
+
     out: list[np.ndarray] = []
     for i in range(len(points) - 1):
         p0, p1, p2, p3 = p[i], p[i + 1], p[i + 2], p[i + 3]
+        t0 = 0.0
+        t1 = _knot(t0, p0, p1)
+        t2 = _knot(t1, p1, p2)
+        t3 = _knot(t2, p2, p3)
         for j in range(samples_per_segment):
-            t = j / samples_per_segment
-            t2, t3 = t * t, t * t * t
-            point = 0.5 * (
-                (2 * p1)
-                + (-p0 + p2) * t
-                + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
-                + (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-            )
-            out.append(point)
+            t = t1 + (t2 - t1) * (j / samples_per_segment)
+            # de Boor / Barry-Goldman form for non-uniform Catmull-Rom.
+            a1 = (t1 - t) / (t1 - t0) * p0 + (t - t0) / (t1 - t0) * p1
+            a2 = (t2 - t) / (t2 - t1) * p1 + (t - t1) / (t2 - t1) * p2
+            a3 = (t3 - t) / (t3 - t2) * p2 + (t - t2) / (t3 - t2) * p3
+            b1 = (t2 - t) / (t2 - t0) * a1 + (t - t0) / (t2 - t0) * a2
+            b2 = (t3 - t) / (t3 - t1) * a2 + (t - t1) / (t3 - t1) * a3
+            c = (t2 - t) / (t2 - t1) * b1 + (t - t1) / (t2 - t1) * b2
+            out.append(c)
     out.append(points[-1])
     return np.array(out)
+
+
+def _envelope_radius(positions: np.ndarray, multiplier: float = 1.5) -> float:
+    """1.5× median nearest-neighbor distance among training cameras.
+
+    Used to define the envelope outside which sampled curve points are clamped back.
+    """
+    if len(positions) < 2:
+        return float("inf")
+    nn_dists: list[float] = []
+    for i, p in enumerate(positions):
+        others = np.delete(positions, i, axis=0)
+        d = float(np.min(np.linalg.norm(others - p, axis=1)))
+        nn_dists.append(d)
+    return float(np.median(nn_dists)) * multiplier
+
+
+def clamp_to_envelope(
+    sampled: np.ndarray,
+    training_positions: np.ndarray,
+    max_dist: float,
+) -> np.ndarray:
+    """Project any sampled point further than max_dist from the nearest training camera
+    back onto the segment between the previous valid sample and the nearest training camera.
+
+    Operates left-to-right; first sample, if out-of-envelope, snaps to the nearest training
+    camera. This eliminates the void-fly-through that produces fractal renders.
+    """
+    if len(sampled) == 0 or len(training_positions) == 0 or not np.isfinite(max_dist):
+        return sampled
+    out = sampled.copy()
+    last_valid = None
+    for i in range(len(out)):
+        p = out[i]
+        d_to_train = np.linalg.norm(training_positions - p, axis=1)
+        nearest_idx = int(np.argmin(d_to_train))
+        nearest_d = float(d_to_train[nearest_idx])
+        if nearest_d <= max_dist:
+            last_valid = out[i]
+            continue
+        nearest = training_positions[nearest_idx]
+        if last_valid is None:
+            out[i] = nearest
+        else:
+            # Walk from last_valid toward nearest until inside the envelope.
+            direction = nearest - last_valid
+            seg_len = float(np.linalg.norm(direction))
+            if seg_len < 1e-9:
+                out[i] = nearest
+            else:
+                # Step the maximum allowable distance along the segment.
+                t = min(1.0, max_dist / seg_len)
+                out[i] = last_valid + direction * t
+        last_valid = out[i]
+    return out
 
 
 def _ease_in_out(t: float) -> float:
@@ -136,6 +206,15 @@ def generate_camera_path(
     eased_ts = np.array([_ease_in_out(i / (total_frames - 1)) for i in range(total_frames)])
     target_arc = eased_ts * total_len
     sampled = np.array([_interp_curve(curve, cum, s) for s in target_arc])
+
+    # A2 — envelope clamp. Centripetal Catmull-Rom alone reduces overshoot but does not
+    # prevent the spline from wandering outside the registered volume between distant
+    # waypoints. Force every sample to stay within max_dist of the nearest training camera.
+    sampled = clamp_to_envelope(
+        sampled,
+        training_positions=positions,
+        max_dist=_envelope_radius(positions),
+    )
 
     # Look-at target = sliding window mean of upcoming positions (10% lookahead).
     lookahead = max(1, total_frames // 10)

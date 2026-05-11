@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import psycopg
+from psycopg.types.json import Jsonb
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -205,12 +206,62 @@ def run(job_id: str) -> int:
             update_status(conn, job_id, "failed", error_message=str(e), fail_stage="ingest")
             return 3
 
+        # G1 — photo-count minimum gate. Below 40 photos COLMAP will struggle on indoor
+        # scenes regardless of downstream fixes; fail fast rather than burn GPU time.
+        n_photos = sum(
+            1
+            for p in photos_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png"}
+        )
+        if n_photos < 40:
+            msg = (
+                f"reconstruction requires ≥40 overlapping photos; got {n_photos}. "
+                f"Request a reshoot with denser coverage."
+            )
+            update_status(
+                conn, job_id, "failed",
+                error_message=msg,
+                fail_stage="ingest_validation",
+                finished_at="now()",
+            )
+            return 6
+
         # Lazy import to avoid hard-deps if running on a CPU-only node for testing
         try:
-            from worker.pipeline import PipelineConfig, stage_organize, stage_preprocess, stage_train, stage_camera_path, stage_render, stage_post, stage_qa
+            from worker.pipeline import (
+                PipelineConfig,
+                stage_exposure_normalize,
+                stage_organize,
+                stage_segment,
+                stage_preprocess,
+                stage_train,
+                stage_camera_path,
+                stage_render,
+                stage_post,
+                stage_qa,
+                stage_mesh_render,
+            )
         except Exception as e:
             update_status(conn, job_id, "failed", error_message=f"pipeline import error: {e}", fail_stage="bootstrap")
             return 4
+
+        # New per-job knobs are defensively .get()'d so this code keeps working before
+        # the DB migration that adds the columns has been applied.
+        cfg_kwargs: dict[str, Any] = {}
+        if (m := job.get("colmap_matching_method")) is not None:
+            cfg_kwargs["colmap_matching_method"] = m
+        if (s := job.get("splat_method")) is not None:
+            cfg_kwargs["splatfacto_method"] = s
+        if (v := job.get("supersample")) is not None:
+            cfg_kwargs["supersample"] = bool(v)
+        if (v := job.get("densify_grad_threshold")) is not None:
+            cfg_kwargs["densify_grad_threshold"] = float(v)
+        if (v := job.get("densification_interval")) is not None:
+            cfg_kwargs["densification_interval"] = int(v)
+        if (v := job.get("use_semantic_masking")) is not None:
+            cfg_kwargs["use_semantic_masking"] = bool(v)
+        if (v := job.get("use_mesh_fallback")) is not None:
+            cfg_kwargs["use_mesh_fallback"] = bool(v)
 
         cfg = PipelineConfig(
             photos=photos_dir,
@@ -225,10 +276,19 @@ def run(job_id: str) -> int:
             use_claude_camera_path=bool(job["use_claude_camera_path"]),
             use_claude_qa=bool(job["use_claude_qa"]),
             voiceover_enabled=bool(job["voiceover_enabled"]),
+            **cfg_kwargs,
         )
 
+        # A7 — stage_exposure_normalize runs FIRST, BEFORE stage_organize, so Claude's
+        # room labeling sees the normalized photo set. Both run under the existing
+        # 'preprocessing' job_status (ENUM doesn't have a dedicated slot for normalize).
+        # L3/A10 — stage_segment also runs under 'preprocessing'; no-op when disabled.
         stage_sequence = [
-            ("preprocessing", lambda: stage_organize(cfg)),
+            ("preprocessing", lambda: (
+                stage_exposure_normalize(cfg),
+                stage_organize(cfg),
+                stage_segment(cfg),
+            )),
             ("colmap",        lambda: stage_preprocess(cfg)),
             ("training",      lambda: stage_train(cfg)),
             ("rendering",     lambda: (stage_camera_path(cfg), stage_render(cfg), stage_post(cfg))),
@@ -240,12 +300,20 @@ def run(job_id: str) -> int:
                 fn()
             except Exception as e:
                 tb = traceback.format_exc()
-                update_status(
-                    conn, job_id, "failed",
-                    error_message=f"{e}\n\n{tb}",
-                    fail_stage=status,
-                    finished_at="now()",
-                )
+                extra: dict[str, Any] = {
+                    "error_message": f"{e}\n\n{tb}",
+                    "fail_stage": status,
+                    "finished_at": "now()",
+                }
+                # G2 — surface reshoot guidance in the DB when COLMAP gating triggered it.
+                if cfg.reshoot_request_json.exists():
+                    try:
+                        extra["reshoot_recommendations"] = Jsonb(
+                            json.loads(cfg.reshoot_request_json.read_text())
+                        )
+                    except Exception:
+                        pass
+                update_status(conn, job_id, "failed", **extra)
                 return 5
 
         out_subdir = f"properties/{prop['id']}/outputs/{job_id}"
@@ -258,7 +326,25 @@ def run(job_id: str) -> int:
         register_features(conn, job_id, cfg.organize_json)
         qa_severity = register_qa(conn, job_id, cfg.qa_json) if cfg.use_claude_qa else None
 
-        final_status = "needs_review" if qa_severity == "fail" else "complete"
+        # Mesh fallback — re-render the camera path against an extracted mesh when
+        # QA flagged the splat output as bad. Default-off; enabled per-job via
+        # jobs.use_mesh_fallback. Failures here log but don't fail the whole job.
+        if cfg.use_mesh_fallback and qa_severity in {"major", "fail"}:
+            try:
+                mesh_mp4 = stage_mesh_render(cfg, qa_severity)
+                if mesh_mp4 is not None and mesh_mp4.exists():
+                    register_output(conn, job_id, "mp4_mesh_fallback", mesh_mp4, out_subdir)
+            except Exception as e:
+                print(f"mesh fallback failed (non-fatal): {e}", file=sys.stderr)
+
+        # When QA returned 'major', force needs_review so the dashboard surfaces both
+        # the splat and (if produced) mesh outputs side-by-side for human review.
+        if qa_severity == "fail":
+            final_status = "needs_review"
+        elif qa_severity == "major" and cfg.use_mesh_fallback:
+            final_status = "needs_review"
+        else:
+            final_status = "complete"
         update_status(conn, job_id, final_status, finished_at="now()")
         return 0
 
