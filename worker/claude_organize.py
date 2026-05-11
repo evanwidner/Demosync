@@ -14,6 +14,7 @@ Cost: ~$0.02/listing on Sonnet 4.6 (50 photos × ~1500 input tokens each).
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import anthropic
+from PIL import Image, ImageOps
 
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
@@ -68,15 +70,20 @@ class OrganizeResult:
         path.write_text(json.dumps({"per_photo": self.per_photo, "listing": self.listing}, indent=2))
 
 
-def _encode_image(path: Path) -> dict[str, Any]:
-    media_type = {
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png": "image/png",
-        ".webp": "image/webp",
-    }.get(path.suffix.lower(), "image/jpeg")
-    data = base64.standard_b64encode(path.read_bytes()).decode("ascii")
-    return {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
+def _encode_image(path: Path, max_edge: int = 1024, quality: int = 80) -> dict[str, Any]:
+    """Downscale + JPEG-recompress before base64. Listing photos are 4-6K and ~80 of
+    them blow past Anthropic's per-request size limit (HTTP 413). 1024px long-edge at
+    quality=80 is plenty for room labeling / hero detection — we don't need detail.
+    """
+    with Image.open(path) as im:
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        if max(im.size) > max_edge:
+            ratio = max_edge / max(im.size)
+            im = im.resize((int(im.size[0] * ratio), int(im.size[1] * ratio)), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=quality)
+    data = base64.standard_b64encode(buf.getvalue()).decode("ascii")
+    return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": data}}
 
 
 def organize_photos(photo_dir: Path, output_json: Path, listing_description: str | None = None) -> OrganizeResult:
