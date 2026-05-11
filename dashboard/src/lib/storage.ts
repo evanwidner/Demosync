@@ -16,7 +16,7 @@ export async function saveFile(
   const ext = path.extname(originalName).toLowerCase() || ".bin";
   const key = `${namespace}/${randomUUID()}${ext}`;
 
-  const uploadUrl = `${supabaseUrl}/storage/v1/object/Inputs/${key}`;
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/inputs/${key}`;
   const resp = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
@@ -37,7 +37,7 @@ export async function saveFile(
 
 export function publicUrl(storageKey: string): string {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  return `${supabaseUrl}/storage/v1/object/public/Inputs/${storageKey}`;
+  return `${supabaseUrl}/storage/v1/object/public/inputs/${storageKey}`;
 }
 
 // Legacy: serve files written to local disk before Supabase Storage migration
