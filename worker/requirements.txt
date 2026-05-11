@@ -1,14 +1,30 @@
-# Packages the worker needs that aren't reliably importable from the system
-# python in dromni/nerfstudio:1.1.4. We keep this minimal and let pip resolve
-# any sub-deps — torch / torchvision / numpy / scipy / opencv / Pillow /
-# tinycudann / gsplat / nerfstudio itself stay untouched (they're on the
-# base image's Python path).
+# Packages the worker imports at module load. The dromni/nerfstudio:1.1.4 base
+# has these installed in its conda env, but the system python3 we run the
+# ENTRYPOINT against doesn't see them — so we install our own copy into the
+# system python. The nerfstudio CLI (ns-train, ns-process-data, ns-render)
+# uses its own conda python and is unaffected by anything we install here.
+
+# Module-load 3rd-party imports across worker/:
+#   camera_path → numpy
+#   claude_camera_path → anthropic, numpy
+#   claude_organize → anthropic
+#   claude_qa → anthropic
+#   depth → PIL, numpy           (only when depth stage is activated)
+#   segment → PIL, numpy         (only when segment stage is activated)
+#   job_handler → psycopg, dotenv, httpx (lazy)
+#   pipeline → typer, rich
+#   voiceover → anthropic
 
 anthropic==0.39.0
 psycopg[binary]==3.2.3
 python-dotenv==1.0.1
 httpx==0.27.2
 
-# CLI + logging — imported at module load time by worker.pipeline.
+# CLI + logging — imported at module load by worker.pipeline.
 typer==0.12.5
 rich==13.8.1
+
+# Numeric + image — required by camera_path; Pillow is for depth/segment stages
+# when we activate them. numpy pinned <2 to match nerfstudio's expectations.
+numpy<2
+Pillow==10.4.0

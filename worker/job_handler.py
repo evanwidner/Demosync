@@ -189,7 +189,9 @@ def run(job_id: str) -> int:
         job = ctx["job"]
         prop = ctx["property"]
         inputs = ctx["inputs"]
-        update_status(conn, job_id, "preprocessing", started_at="now()", worker_pod_id="local")
+        # Don't overwrite worker_pod_id — the daemon set it to the actual RunPod
+        # pod ID, which is what the dashboard needs to link to live logs.
+        update_status(conn, job_id, "preprocessing", started_at="now()")
 
         workdir = ROOT / "worker" / "runs" / job_id
         photos_dir = workdir / "photos"
