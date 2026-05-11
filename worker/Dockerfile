@@ -18,11 +18,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Only the packages NOT already in the nerfstudio base image. torch / torchvision /
-# numpy / scipy / opencv / Pillow / tqdm / rich / typer / tinycudann / gsplat /
-# nerfstudio itself are all preinstalled — adding them here would risk version drift.
+# Install into the SAME python3 we'll invoke at ENTRYPOINT. The base image
+# may have multiple pythons on PATH (conda, system, venv); `python3 -m pip`
+# guarantees alignment.
 COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN python3 -m pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app/worker
 
